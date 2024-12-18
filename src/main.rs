@@ -2,8 +2,7 @@ mod scanner;
 use scanner::{ParseError, Scanner};
 use std::{
     env,
-    f32::consts::E,
-    fmt::Error,
+ 
     fs,
     io::{self, BufRead},
     process,

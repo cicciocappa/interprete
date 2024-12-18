@@ -1,3 +1,28 @@
+use std::collections::HashMap;
+use std::sync::LazyLock;
+
+pub static KEYWORDS: LazyLock<HashMap<&str, TokenType>> = LazyLock::new(|| {
+    println!("Initializing shared HashMap!");
+    let mut map = HashMap::new();
+    map.insert("and", TokenType::And);
+    map.insert("class", TokenType::Class);
+    map.insert("else", TokenType::Else);
+    map.insert("false", TokenType::False);
+    map.insert("for", TokenType::For);
+    map.insert("fun", TokenType::Fun);
+    map.insert("if", TokenType::If);
+    map.insert("nil", TokenType::Nil);
+    map.insert("or", TokenType::Or);
+    map.insert("print", TokenType::Print);
+    map.insert("return", TokenType::Return);
+    map.insert("super", TokenType::Super);
+    map.insert("this", TokenType::This);
+    map.insert("true", TokenType::True);
+    map.insert("var", TokenType::Var);
+    map.insert("while", TokenType::While);
+    map
+});
+
 // Define an error type for scanner errors.
 #[derive(Debug, Clone)]
 pub struct ParseError {
@@ -125,7 +150,8 @@ impl Scanner {
         while !self.is_at_end() {
             self.start = self.current;
             match self.scan_token() {
-                Ok(token) => tokens.push(token), // Add the token to the vector of tokens
+                Ok(Some(token)) => tokens.push(token), // Add the token to the vector of tokens
+                Ok(None) => continue,
                 Err(error) => return Err(error), // If there is an error, return the error.
             };
         }
@@ -137,18 +163,161 @@ impl Scanner {
         self.current >= self.source.len()
     }
 
-    fn scan_token(&mut self) -> Result<Token, ParseError> {
+    fn scan_token(&mut self) -> Result<Option<Token>, ParseError> {
         let c = self.advance();
         match c {
-            '(' => Ok(self.create_token(TokenType::LeftParen)),
-            ')' => Ok(self.create_token(TokenType::RightParen)),
+            '(' => Ok(Some(self.create_token(TokenType::LeftParen))),
+            ')' => Ok(Some(self.create_token(TokenType::RightParen))),
+            '{' => Ok(Some(self.create_token(TokenType::LeftBrace))),
+            '}' => Ok(Some(self.create_token(TokenType::RightBrace))),
+            ',' => Ok(Some(self.create_token(TokenType::Comma))),
+            '.' => Ok(Some(self.create_token(TokenType::Dot))),
+            '-' => Ok(Some(self.create_token(TokenType::Minus))),
+            '+' => Ok(Some(self.create_token(TokenType::Plus))),
+            ';' => Ok(Some(self.create_token(TokenType::Semicolon))),
+            '*' => Ok(Some(self.create_token(TokenType::Star))),
+            '!' => {
+                if self.match_next('=') {
+                    Ok(Some(self.create_token(TokenType::BangEqual)))
+                } else {
+                    Ok(Some(self.create_token(TokenType::Bang)))
+                }
+            }
+            '=' => {
+                if self.match_next('=') {
+                    Ok(Some(self.create_token(TokenType::EqualEqual)))
+                } else {
+                    Ok(Some(self.create_token(TokenType::Equal)))
+                }
+            }
+            '<' => {
+                if self.match_next('=') {
+                    Ok(Some(self.create_token(TokenType::LessEqual)))
+                } else {
+                    Ok(Some(self.create_token(TokenType::Less)))
+                }
+            }
+            '>' => {
+                if self.match_next('=') {
+                    Ok(Some(self.create_token(TokenType::GreaterEqual)))
+                } else {
+                    Ok(Some(self.create_token(TokenType::Greater)))
+                }
+            }
+            '/' => {
+                if self.match_next('/') {
+                    while self.peek() != '\n' && !self.is_at_end() {
+                        self.advance();
+                    }
+                    Ok(None)
+                } else {
+                    Ok(Some(self.create_token(TokenType::Slash)))
+                }
+            }
+            ' ' | '\r' | '\t' => {
+                // Ignore whitespace.
+                Ok(None)
+            }
+            '\n' => {
+                self.line += 1;
+                Ok(None)
+            }
+            '"' => self.string(),
             _ => {
-                Err(ParseError::new(
-                    self.line,
-                    format!("Unexpected character: {}", c),
-                )) // Example of error handling
+                if c.is_ascii_digit() {
+                    self.number()
+                } else if is_alpha(c) {
+                    self.identifier()
+                } else {
+                    Err(ParseError::new(
+                        self.line,
+                        format!("Unexpected character: {}", c),
+                    )) // Example of error handling
+                }
             }
         }
+    }
+
+    fn identifier(&mut self) -> Result<Option<Token>, ParseError> {
+        while is_alphanumeric(self.peek()) {
+            self.advance();
+        }
+        let text = &self.source[self.start..self.current];
+        let token_type = *KEYWORDS.get(text).unwrap_or(&TokenType::Identifier);
+        Ok(Some(self.create_token(token_type)))
+    }
+
+    fn number(&mut self) -> Result<Option<Token>, ParseError> {
+        while self.peek().is_ascii_digit() {
+            self.advance();
+        }
+        if self.peek() == '.' && self.peek_next().is_ascii_digit() {
+            // Consume the "."
+            self.advance();
+
+            while self.peek().is_ascii_digit() {
+                self.advance();
+            }
+        }
+
+        let value: f64 = self.source[self.start..self.current].parse().unwrap();
+        Ok(Some(self.create_token_with_literal(
+            TokenType::Number,
+            Some(Literal::Number(value)),
+        )))
+    }
+
+    fn string(&mut self) -> Result<Option<Token>, ParseError> {
+        while self.peek() != '"' && !self.is_at_end() {
+            if self.peek() == '\n' {
+                self.line += 1;
+            }
+            self.advance();
+        }
+
+        if self.is_at_end() {
+            return Err(ParseError::new(
+                self.line,
+                String::from("Unterminated string."),
+            )); //
+        }
+
+        // The closing ".
+        self.advance();
+
+        // Trim the surrounding quotes.
+        let value = self.source[self.start + 1..self.current - 1].to_owned();
+        Ok(Some(self.create_token_with_literal(
+            TokenType::String,
+            Some(Literal::String(value)),
+        )))
+    }
+
+    fn peek(&self) -> char {
+        if self.is_at_end() {
+            '\0'
+        } else {
+            self.source.chars().nth(self.current).unwrap()
+        }
+    }
+
+    fn peek_next(&self) -> char {
+        if self.current + 1 >= self.source.len() {
+            '\0'
+        } else {
+            self.source.chars().nth(self.current + 1).unwrap()
+        }
+    }
+
+    fn match_next(&mut self, expected: char) -> bool {
+        if self.is_at_end() {
+            return false;
+        }
+        if self.source.chars().nth(self.current).unwrap() != expected {
+            return false;
+        }
+        self.current += 1;
+        true
     }
 
     fn advance(&mut self) -> char {
@@ -164,8 +333,16 @@ impl Scanner {
         self.create_token_with_literal(token_type, None)
     }
 
-    fn create_token_with_literal(&self, token_type: TokenType, literal: Option<Literal>) -> Token{
+    fn create_token_with_literal(&self, token_type: TokenType, literal: Option<Literal>) -> Token {
         let lexeme = self.source[self.start..self.current].to_owned();
         Token::new(token_type, lexeme, literal, self.line)
     }
+}
+
+fn is_alpha(c: char) -> bool {
+    c.is_ascii_alphabetic() || c == '_'
+}
+
+fn is_alphanumeric(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_'
 }
