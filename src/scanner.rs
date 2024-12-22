@@ -25,16 +25,44 @@ pub static KEYWORDS: LazyLock<HashMap<&str, TokenType>> = LazyLock::new(|| {
 
 // Define an error type for scanner errors.
 #[derive(Debug, Clone)]
-pub struct ParseError {
-    pub line: usize,
-    pub message: String,
+pub enum ParseError {
+    UnexpectedCharacter(char, usize),
+    UnexpectedToken(Token, String),
+    ExpectedToken(TokenType, Token),
+    UnterminatedString(usize),
+    EndOfFile,
+    // Add more specific parsing errors as needed
 }
 
-impl ParseError {
-    pub fn new(line: usize, message: String) -> Self {
-        ParseError { line, message }
+impl std::fmt::Display for ParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ParseError::UnexpectedCharacter(character, line) => {
+                write!(f, "Line {}: Unexpected character '{}'", line, character)
+            }
+            ParseError::UnexpectedToken(token, message) => {
+                write!(
+                    f,
+                    "Line {}: Unexpected token '{}': {}",
+                    token.line, token.lexeme, message
+                )
+            }
+            ParseError::ExpectedToken(expected, found) => {
+                write!(
+                    f,
+                    "Line {}: Expected token '{:?}', but found '{}'",
+                    found.line, expected, found.lexeme
+                )
+            }
+            ParseError::UnterminatedString(line) => {
+                write!(f, "Line {}: Unterminated string", line)
+            }
+            ParseError::EndOfFile => write!(f, "Unexpected end of file"),
+        }
     }
 }
+
+impl std::error::Error for ParseError {}
 
 pub struct Scanner {
     source: String,
@@ -46,7 +74,7 @@ pub struct Scanner {
 pub struct Token {
     pub token_type: TokenType,
     pub lexeme: String,
-    pub literal: Option<Literal>,
+    pub literal: Option<LiteralValue>,
     pub line: usize,
 }
 
@@ -54,7 +82,7 @@ impl Token {
     pub fn new(
         token_type: TokenType,
         lexeme: String,
-        literal: Option<Literal>,
+        literal: Option<LiteralValue>,
         line: usize,
     ) -> Self {
         Token {
@@ -128,7 +156,7 @@ pub enum TokenType {
 }
 
 #[derive(Debug, Clone)]
-pub enum Literal {
+pub enum LiteralValue {
     String(String),
     Number(f64),
     Boolean(bool),
@@ -229,10 +257,7 @@ impl Scanner {
                 } else if is_alpha(c) {
                     self.identifier()
                 } else {
-                    Err(ParseError::new(
-                        self.line,
-                        format!("Unexpected character: {}", c),
-                    )) // Example of error handling
+                    Err(ParseError::UnexpectedCharacter(c, self.line)) // Example of error handling
                 }
             }
         }
@@ -263,7 +288,7 @@ impl Scanner {
         let value: f64 = self.source[self.start..self.current].parse().unwrap();
         Ok(Some(self.create_token_with_literal(
             TokenType::Number,
-            Some(Literal::Number(value)),
+            Some(LiteralValue::Number(value)),
         )))
     }
 
@@ -276,10 +301,7 @@ impl Scanner {
         }
 
         if self.is_at_end() {
-            return Err(ParseError::new(
-                self.line,
-                String::from("Unterminated string."),
-            )); //
+            return Err(ParseError::UnterminatedString(self.line)); //
         }
 
         // The closing ".
@@ -289,7 +311,7 @@ impl Scanner {
         let value = self.source[self.start + 1..self.current - 1].to_owned();
         Ok(Some(self.create_token_with_literal(
             TokenType::String,
-            Some(Literal::String(value)),
+            Some(LiteralValue::String(value)),
         )))
     }
 
@@ -333,7 +355,11 @@ impl Scanner {
         self.create_token_with_literal(token_type, None)
     }
 
-    fn create_token_with_literal(&self, token_type: TokenType, literal: Option<Literal>) -> Token {
+    fn create_token_with_literal(
+        &self,
+        token_type: TokenType,
+        literal: Option<LiteralValue>,
+    ) -> Token {
         let lexeme = self.source[self.start..self.current].to_owned();
         Token::new(token_type, lexeme, literal, self.line)
     }

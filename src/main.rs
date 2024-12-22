@@ -1,9 +1,11 @@
+mod expr;
+mod parser;
 mod scanner;
+mod stmt;
+use parser::Parser;
 use scanner::{ParseError, Scanner};
 use std::{
-    env,
- 
-    fs,
+    env, fs,
     io::{self, BufRead},
     process,
 };
@@ -45,7 +47,7 @@ fn run_prompt() {
 fn run_file(file_path: &str) {
     match fs::read_to_string(file_path) {
         Ok(source) => {
-            let exec = run(source); 
+            let exec = run(source);
             if exec.is_err() {
                 process::exit(65)
             };
@@ -60,28 +62,16 @@ fn run(source: String) -> Result<(), ParseError> {
     let mut scanner = Scanner::new(source);
     match scanner.scan_tokens() {
         Ok(tokens) => {
-            for token in tokens {
-                println!("{token:?}");
-            }
+            let mut parser = Parser::new(tokens);
+            let stm = parser.parse();
+            println!("{:?}", stm);
             Ok(())
         }
         Err(error) => {
-            eprintln!(
-                "Error parsing tokens, line {}, message: {}",
-                error.line, error.message
-            );
+            eprintln!("{error}",);
             Err(error)
         }
     }
 
     // For now, just print the tokens.
-}
-
-fn error(line: usize, message: String, had_error: &mut bool) {
-    report(line, String::from(""), message, had_error);
-}
-
-fn report(line: usize, position: String, message: String, had_error: &mut bool) {
-    println!("[line {line}] Error {position}: {message}");
-    *had_error = true;
 }
