@@ -2,6 +2,7 @@ mod expr;
 mod parser;
 mod scanner;
 mod stmt;
+mod interpreter;
 use parser::Parser;
 use scanner::{ParseError, Scanner};
 use std::{
