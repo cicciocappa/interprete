@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 
 pub static KEYWORDS: LazyLock<HashMap<&str, TokenType>> = LazyLock::new(|| {
-    println!("Initializing shared HashMap!");
+    //println!("Initializing shared HashMap!");
     let mut map = HashMap::new();
     map.insert("and", TokenType::And);
     map.insert("class", TokenType::Class);

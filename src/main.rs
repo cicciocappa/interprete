@@ -1,8 +1,11 @@
 mod expr;
+mod interpreter;
 mod parser;
 mod scanner;
 mod stmt;
-mod interpreter;
+mod environment;
+
+use interpreter::{Interpreter, RuntimeError};
 use parser::Parser;
 use scanner::{ParseError, Scanner};
 use std::{
@@ -10,6 +13,36 @@ use std::{
     io::{self, BufRead},
     process,
 };
+
+// Define your generic error type
+#[derive(Debug)]
+pub enum InterpreterError {
+    Parse(ParseError),
+    Runtime(RuntimeError),
+}
+
+// Implement the `Display` trait for better error messages
+impl std::fmt::Display for InterpreterError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            InterpreterError::Parse(err) => write!(f, "Parse error: {}", err),
+            InterpreterError::Runtime(err) => write!(f, "Runtime error: {}", err),
+        }
+    }
+}
+
+// Implement `From` trait for automatic conversion
+impl From<ParseError> for InterpreterError {
+    fn from(err: ParseError) -> Self {
+        InterpreterError::Parse(err)
+    }
+}
+
+impl From<RuntimeError> for InterpreterError {
+    fn from(err: RuntimeError) -> Self {
+        InterpreterError::Runtime(err)
+    }
+}
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -34,7 +67,10 @@ fn run_prompt() {
         match line_result {
             Ok(line) => {
                 // Process the line
-                let _ = run(line);
+                let exec = run(line);
+                if let Err(e) = exec {
+                    println!("{e}");
+                };
             }
             Err(e) => {
                 // Handle the error
@@ -49,7 +85,8 @@ fn run_file(file_path: &str) {
     match fs::read_to_string(file_path) {
         Ok(source) => {
             let exec = run(source);
-            if exec.is_err() {
+            if let Err(e) = exec {
+                println!("{e}");
                 process::exit(65)
             };
         }
@@ -59,20 +96,12 @@ fn run_file(file_path: &str) {
     }
 }
 
-fn run(source: String) -> Result<(), ParseError> {
+fn run(source: String) -> Result<(), InterpreterError> {
+    let mut interpreter = Interpreter::new();
     let mut scanner = Scanner::new(source);
-    match scanner.scan_tokens() {
-        Ok(tokens) => {
-            let mut parser = Parser::new(tokens);
-            let stm = parser.parse();
-            println!("{:?}", stm);
-            Ok(())
-        }
-        Err(error) => {
-            eprintln!("{error}",);
-            Err(error)
-        }
-    }
-
-    // For now, just print the tokens.
+    let tokens = scanner.scan_tokens()?;
+    let mut parser = Parser::new(tokens);
+    let program = parser.parse()?;
+    interpreter.interpret(&program)?;
+    Ok(())
 }
